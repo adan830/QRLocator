@@ -11,6 +11,27 @@ using namespace std;
 
 #define WINDOW_NAME_RAW  "raw"
 
+typedef struct{
+	unsigned int x,
+	unsigned int y,
+}point;
+
+typedef struct{
+	point points[4];
+	point center;
+}marker;
+
+typedef struct{
+	unsigned int w[5];
+	unsigned int last;
+}findstate;
+
+typedef struct{
+	unsigned int start;
+	unsigned int end;
+	unsigned int coor;
+}markerline;
+
 static int _loadImage( char * name, Mat *image)
 {
     string imageName;
@@ -37,11 +58,18 @@ static void _showImage(const char* name, Mat image)
 	imshow(name, image);
 }
 
+static void _findMark(Mat raw, Mat edges, vector<rectagle> &mark)
+{
+
+}
+
 int main( int argc, char** argv )
 {
 	int ret;
 	Mat rawImg;
-	Mat blurImg;
+	Mat blur3Img;
+	Mat blur5Img;
+	Mat cannyEdges;
 
 	//load image
     if ( argc > 1) {
@@ -55,14 +83,26 @@ int main( int argc, char** argv )
 	}
 
 	//blur
-	GaussianBlur(rawImg, blurImg, Size(5, 5), 0, 0);
+	GaussianBlur(rawImg, blur3Img, Size(3, 3), 0, 0);
+	GaussianBlur(rawImg, blur5Img, Size(5, 5), 0, 0);
 	
 	//canny
+	Canny(rawImg, cannyEdges, 150, 150, 3);
+	_showImage("cannyraw", cannyEdges);
+	imwrite("cannyraw.png", cannyEdges);
+	Canny(blur3Img, cannyEdges, 150, 150, 3);
+	_showImage("cannyblur3", cannyEdges);
+	imwrite("cannyblur3.png", cannyEdges);
+	Canny(blur5Img, cannyEdges, 150, 150, 3);
+	_showImage("cannyblur5", cannyEdges);
+	imwrite("cannyblur5.png", cannyEdges);
 
+	/*
 	_showImage("raw", rawImg);
 	_showImage("blur", blurImg);
-
+	_showImage("canny", cannyEdges);
 	imwrite("blur5.png", blurImg);
+	*/
 
     waitKey(0); // Wait for a keystroke in the window
 
