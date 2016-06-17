@@ -6,15 +6,14 @@ CINCS=-I../opencv/include -I.
 CPPFLAGS=-g -Wall
 
 LDINCS=-L../opencv/lib
-LDFLAGS=-lpng -lopencv_imgproc -lopencv_highgui -lopencv_core -lopencv_imgcodecs -lstdc++ -Wall
+LDFLAGS=-lpng -lopencv_imgproc -lopencv_highgui -lopencv_core -lopencv_imgcodecs -lopencv_videoio -lstdc++ -Wall
 
-SRCS=display_image.o
+SRCS=locator.o
 OBJS=$(patsubst %cpp, %o, $(SRCS))
 
-all : png tags
+all : locator
 
-#png : $(OBJS) png_test.o
-png : $(OBJS)
+locator : $(OBJS)
 	$(LD) -o locator $^ $(LDINCS) $(LDFLAGS)
 
 .PHONY : tags
