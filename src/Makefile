@@ -8,13 +8,16 @@ CPPFLAGS=-g -Wall
 LDINCS=-L../opencv/lib
 LDFLAGS=-lpng -lopencv_imgproc -lopencv_highgui -lopencv_core -lopencv_imgcodecs -lopencv_videoio -lstdc++ -Wall
 
-SRCS=locator.o
+SRCS=locator.o 
 OBJS=$(patsubst %cpp, %o, $(SRCS))
 
-all : locator
+all :qrcamera  qrimage
 
-locator : $(OBJS)
-	$(LD) -o locator $^ $(LDINCS) $(LDFLAGS)
+qrcamera: $(OBJS) qrcamera.o
+	$(LD) -o qrcamera $^ $(LDINCS) $(LDFLAGS)
+
+qrimage: $(OBJS) qrimage.o
+	$(LD) -o qrimage $^ $(LDINCS) $(LDFLAGS)
 
 .PHONY : tags
 tags : 
@@ -25,7 +28,7 @@ tags :
 	$(CC) -c $(CPPFLAGS) $(CINCS) -o $@ $<
 
 clean:
-	-rm -f locator
+	-rm -f qrimage qrcamera
 	-rm -f $(OBJS)
 	-rm -f *.o
 	-rm -f cscope.* tags

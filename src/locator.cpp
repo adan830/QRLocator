@@ -46,34 +46,6 @@ typedef struct{
 	unsigned int other;  //other dimension， when start and end
 }markerline;
 
-/*
-static int _loadImage( char * name, Mat *image)
-{
-    string imageName;
-
-	if (NULL == name){
-		imageName = "../image/2_usmall.png";
-	} else {
-		imageName = name;
-	}
-	
-    *image = imread(imageName.c_str(), IMREAD_GRAYSCALE); // Read the file
-    if( image->empty() )                      // Check for invalid input
-    {
-        cout <<  "Could not open or find the image" << std::endl ;
-        return -1;
-    }
-
-	return 0;
-}
-
-static void _showImage(const char* name, Mat image)
-{
-    namedWindow(name, WINDOW_AUTOSIZE); // Create a window for display.
-	imshow(name, image);
-}
-*/
-
 static void _addStage(int pos, int color, findstate *state)
 {
 	switch (state->stage){
@@ -129,10 +101,10 @@ static void _addStage(int pos, int color, findstate *state)
 static void _moveState(findstate *state)
 {
 	if (FIND_STATE_FINISH == state->stage){
-		state->w[0] = state->w[1];
-		state->w[1] = state->w[2];
-		state->w[3] = state->w[4];
-		state->stage = FIND_STATE_5;
+		state->w[0] = state->w[2];
+		state->w[1] = state->w[3];
+		state->w[2] = state->w[4];
+		state->stage = FIND_STATE_4;
 	}
 
 	return;
@@ -173,7 +145,6 @@ static void _resetState(findstate *state)
 	memset(state, 0, sizeof(*state));
 }
 
-//static void _scanImage(unsigned char* raw, unsigned char *edges, int width, int height, vector<markerline> &xlines, vector<markerline> &ylines)
 static void _scanImage(Mat &rawImg, Mat &edgeImg, vector<markerline> &xlines, vector<markerline> &ylines)
 {
 	unsigned char *raw, *edges;
@@ -281,102 +252,55 @@ static void _findMark(Mat raw, Mat edges, vector<markerline> &mark)
 }
 */
 
-static void _drawFinderLines(Mat &images, vector<markerline> &lines)
+static void _drawFinderLines(Mat &img, vector<markerline> &lines, int x)
 {
+	int i;
+	markerline line;
+	const Scalar green = Scalar(0, 255, 0);
+
+
 	printf("find [%lu] lines.\r\n", lines.size());
+
+	for (i = 0; i < lines.size(); ++i){
+		line = lines[i];
+		if (1 == x){
+			cv::line(img, 
+				 Point(line.start, line.other), 
+				 Point(line.end, line.other), 
+				 green);
+		} else {
+			cv::line(img, 
+				 Point(line.other, line.start), 
+				 Point(line.other, line.end),
+				 green);
+		}
+	}
 
 	return;
 }
 
-int main( int argc, char* argv[])
+void LOCATER_ProcessImage(Mat &raw, Mat &edges, Mat &qrimg)
 {
-	int key;
-	VideoCapture capture(0);
-	Mat rawImg;
-	Mat grayImg;
-	Mat cannyEdges;
+	Mat gray;
 	vector<markerline> xlines;
 	vector<markerline> ylines;
 
-	capture >> rawImg;
-	printf("Raw image size [%d * %d]\n", rawImg.cols, rawImg.rows);
-
-	key = 0;
-	while( 'q' != key){
-		//capture
-		capture >> rawImg;
-
-		//gray
-		cvtColor(rawImg, grayImg, CV_RGB2GRAY);
-
-		//blur
-		GaussianBlur(grayImg, grayImg, Size(3, 3), 0, 0);
-
-		//canny
-		Canny(grayImg, cannyEdges, 120, 120, 3);
-
-		//scan image
-		_scanImage(grayImg, cannyEdges, xlines, ylines);
-
-		//draw finder lines
-		_drawFinderLines(rawImg, xlines);
-		_drawFinderLines(rawImg, ylines);
-
-		//show image
-		imshow("RAW", rawImg);
-		imshow("EDGES", cannyEdges);
-
-		//clean up
-		xlines.clear();
-		ylines.clear();
-
-		key = waitKey(1);
-	}
-
-	return 0;
-}
-
-/*
-int main( int argc, char** argv )
-{
-	int ret;
-	Mat rawImg;
-	Mat blur3Img;
-	Mat blur5Img;
-	Mat cannyEdges;
-
-	//load image
-    if ( argc > 1) {
-		ret = _loadImage(argv[1], &rawImg);
-    } else {
-		ret = _loadImage(NULL, &rawImg);
-	}
-
-	if (0 != ret){
-		return ret;
-	}
+	//gray
+	cvtColor(raw, gray, CV_RGB2GRAY);
 
 	//blur
-	GaussianBlur(rawImg, blur3Img, Size(3, 3), 0, 0);
-	GaussianBlur(rawImg, blur5Img, Size(5, 5), 0, 0);
-	
+	GaussianBlur(gray, gray, Size(3, 3), 0, 0);
+
 	//canny
-	Canny(rawImg, cannyEdges, 150, 150, 3);
-	_showImage("cannyraw", cannyEdges);
-	imwrite("cannyraw.png", cannyEdges);
-	Canny(blur3Img, cannyEdges, 150, 150, 3);
-	_showImage("cannyblur3", cannyEdges);
-	imwrite("cannyblur3.png", cannyEdges);
-	Canny(blur5Img, cannyEdges, 150, 150, 3);
-	_showImage("cannyblur5", cannyEdges);
-	imwrite("cannyblur5.png", cannyEdges);
+	Canny(gray, edges, 120, 200, 3);
 
-	_showImage("raw", rawImg);
-	_showImage("blur", blurImg);
-	_showImage("canny", cannyEdges);
-	imwrite("blur5.png", blurImg);
+	//scan image
+	_scanImage(gray, edges, xlines, ylines);
 
-    waitKey(0); // Wait for a keystroke in the window
+	//draw finder lines
+	_drawFinderLines(raw, xlines, 1);
+	_drawFinderLines(raw, ylines, 0);
 
-    return 0;
-} */
+	return;
+}
+
