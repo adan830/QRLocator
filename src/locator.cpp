@@ -13,6 +13,7 @@ using namespace std;
 
 #define COLOR_WHITE 0xFF
 #define COLOR_BLACK 0x00
+#define SUBPREC  2
 
 enum{
 	FIND_STATE_INIT = 0,
@@ -43,11 +44,22 @@ typedef struct{
 typedef struct{
 	unsigned int start;
 	unsigned int end;
-	unsigned int other;  //other dimensionï¼Œ when start and end
+	unsigned int otherd;  //other dimension£¬ when start and end
 }markerline;
 
 static void _addStage(int pos, int color, findstate *state)
 {
+	//if already in FIND_STATE_FINISH state, means current state is not a valid finder line
+	//so we discard fist two width( finder pattern always start with a black)
+	if (FIND_STATE_FINISH == state->stage){
+		state->w[0] = state->w[2];
+		state->w[1] = state->w[3];
+		state->w[2] = state->w[4];
+		state->stage = FIND_STATE_4;
+	}
+	
+	pos <<= SUBPREC;
+	
 	switch (state->stage){
 		case FIND_STATE_INIT:
 			if (COLOR_BLACK == color){
@@ -97,19 +109,6 @@ static void _addStage(int pos, int color, findstate *state)
 	};
 }
 
-//move state as fifo
-static void _moveState(findstate *state)
-{
-	if (FIND_STATE_FINISH == state->stage){
-		state->w[0] = state->w[2];
-		state->w[1] = state->w[3];
-		state->w[2] = state->w[4];
-		state->stage = FIND_STATE_4;
-	}
-
-	return;
-}
-
 static int _matchState(findstate *state)
 {
 	unsigned int unit;
@@ -118,24 +117,28 @@ static int _matchState(findstate *state)
 		return 0;
 	}
 	
-	unit = (state->w[0] + state->w[1] + state->w[3] + state->w[4])/4;
+	unit = (state->w[0] + state->w[1] + state->w[2] +state->w[3] + state->w[4])/7;
 	
-	if (state->w[0] > unit * 0.5 && state->w[0] < unit * 1.5 &&
-	    state->w[1] > unit * 0.5 && state->w[1] < unit * 1.5 &&
-		state->w[2] > unit * 2.5 && state->w[2] < unit * 3.5 &&
-		state->w[3] > unit * 0.5 && state->w[3] < unit * 1.5 &&
-		state->w[4] > unit * 0.5 && state->w[4] < unit * 1.5){
+	if ((state->w[0] >= (unit * 0.5)) && (state->w[0] <= (unit * 1.5)) &&
+	    (state->w[1] >= (unit * 0.5)) && (state->w[1] <= (unit * 1.5)) &&
+		(state->w[2] >= (unit * 2.5)) && (state->w[2] <= (unit * 3.5)) &&
+		(state->w[3] >= (unit * 0.5)) && (state->w[3] <= (unit * 1.5)) &&
+		(state->w[4] >= (unit * 0.5)) && (state->w[4] <= (unit * 1.5))){
 		return 1;
 	} else {
 		return 0;
 	}
 }
 
-static void _state2MarkerLine(unsigned other, findstate *state, markerline *mline)
+static void _state2MarkerLine(unsigned otherd, findstate *state, markerline *mline)
 {
-	mline->end = state->last;
-	mline->start = state->last - state->w[0] - state->w[1] - state->w[2] - state->w[3] - state->w[4];
-	mline->other = other;
+	mline->end = (state->last >> SUBPREC);
+	mline->start = ((state->last - state->w[0] - state->w[1] - state->w[2] - state->w[3] - state->w[4]) >> SUBPREC);
+	mline->otherd = (otherd);
+	/*
+	mline->end = (state->last);
+	mline->start = ((state->last - state->w[0] - state->w[1] - state->w[2] - state->w[3] - state->w[4]));
+	mline->otherd = (otherd); */
 	
 	return;
 }
@@ -197,8 +200,6 @@ static void _scanImage(Mat &rawImg, Mat &edgeImg, vector<markerline> &xlines, ve
 					xlines.push_back(mline);
 					_resetState(&state);
 				}
-				
-				_moveState(&state);
 			}//if
 		}//for
 	}//for
@@ -236,8 +237,6 @@ static void _scanImage(Mat &rawImg, Mat &edgeImg, vector<markerline> &xlines, ve
 					ylines.push_back(mline);
 					_resetState(&state);
 				} 
-				
-				_moveState(&state);
 			}//if
 		}//for
 	}//for
@@ -265,13 +264,13 @@ static void _drawFinderLines(Mat &img, vector<markerline> &lines, int x)
 		line = lines[i];
 		if (1 == x){
 			cv::line(img, 
-				 Point(line.start, line.other), 
-				 Point(line.end, line.other), 
+				 Point(line.start, line.otherd), 
+				 Point(line.end, line.otherd), 
 				 green);
 		} else {
 			cv::line(img, 
-				 Point(line.other, line.start), 
-				 Point(line.other, line.end),
+				 Point(line.otherd, line.start), 
+				 Point(line.otherd, line.end),
 				 green);
 		}
 	}
@@ -292,7 +291,7 @@ void LOCATER_ProcessImage(Mat &raw, Mat &edges, Mat &qrimg)
 	GaussianBlur(gray, gray, Size(3, 3), 0, 0);
 
 	//canny
-	Canny(gray, edges, 120, 200, 3);
+	Canny(gray, edges, 100, 150, 3);
 
 	//scan image
 	_scanImage(gray, edges, xlines, ylines);
