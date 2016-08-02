@@ -15,7 +15,7 @@ int main( int argc, char* argv[])
 	VideoCapture capture(0);
 	Mat raw;
 	Mat qrcode;
-	Mat edges;
+	Mat binary;
 
 	capture >> raw;
 	printf("Raw image size [%d * %d]\n", raw.cols, raw.rows);
@@ -26,7 +26,7 @@ int main( int argc, char* argv[])
 		capture >> raw;
 
 		//processing
-		LOCATER_ProcessImage(raw, edges, qrcode);
+		LOCATER_ProcessImage(raw, binary, qrcode);
 
 		//show image
 		imshow("RAW", raw);

@@ -16,33 +16,44 @@ using namespace std;
 #define SUBPREC  2
 
 enum{
-	FIND_STATE_INIT = 0,
-	FIND_STATE_1,
-	FIND_STATE_2,
-	FIND_STATE_3,
-	FIND_STATE_4,
-	FIND_STATE_5,
+	FIND_STATE_INIT = 0, //wait for white separacter
+	FIND_STATE_1,        //wait for black
+	FIND_STATE_2,		 //wait for white
+	FIND_STATE_3,        //wait for black
+	FIND_STATE_4,        //wait for white
+	FIND_STATE_5,        //wait for black
+	FIND_STATE_6,        //wait for white
 	FIND_STATE_FINISH,
 };
 
+//point
 typedef struct{
 	unsigned int x;
 	unsigned int y;
 }point;
+
+//rectangle
+typedef struct {
+	point topleft;
+	unsigned width;
+	unsigned height;
+}rectangle;
 
 typedef struct{
 	point points[4];
 	point center;
 }marker;
 
+//用于匹配白:黑:白:黑:白:黑:白的模式，宽度比为n:1:1:3:1:1:n
 typedef struct{
 	unsigned int w[5];
 	unsigned int last;
 	unsigned char stage;
 }findstate;
 
+//寻找到的穿过marker的线，根据上下文确定是x方向，还是y方向
 typedef struct{
-	unsigned int start;
+	unsigned int start;   //起始点的坐标
 	unsigned int end;
 	unsigned int otherd;  //other dimension， when start and end
 }markerline;
@@ -55,47 +66,52 @@ static void _addStage(int pos, int color, findstate *state)
 		state->w[0] = state->w[2];
 		state->w[1] = state->w[3];
 		state->w[2] = state->w[4];
-		state->stage = FIND_STATE_4;
+		state->stage = FIND_STATE_5;
 	}
 	
 	pos <<= SUBPREC;
 	
 	switch (state->stage){
 		case FIND_STATE_INIT:
-			if (COLOR_BLACK == color){
-				state->last = pos;
+			if (COLOR_WHITE == color){
 				state->stage = FIND_STATE_1;
 			}
 			break;
 		case FIND_STATE_1:
-			if (COLOR_WHITE == color){
-				state->w[0] = pos - state->last;
-				state->last = pos;
+			if (COLOR_BLACK == color){
 				state->stage = FIND_STATE_2;
+				state->last = pos;
 			}
 			break;
 		case FIND_STATE_2:
-			if (COLOR_BLACK == color){
-				state->w[1] = pos - state->last;
+			if (COLOR_WHITE == color){
+				state->w[0] = pos - state->last;
 				state->last = pos;
 				state->stage = FIND_STATE_3;
 			}
 			break;
 		case FIND_STATE_3:
-			if (COLOR_WHITE == color){
-				state->w[2] = pos - state->last;
+			if (COLOR_BLACK == color){
+				state->w[1] = pos - state->last;
 				state->last = pos;
 				state->stage = FIND_STATE_4;
 			}
 			break;
 		case FIND_STATE_4:
-			if (COLOR_BLACK == color){
-				state->w[3] = pos - state->last;
+			if (COLOR_WHITE == color){
+				state->w[2] = pos - state->last;
 				state->last = pos;
 				state->stage = FIND_STATE_5;
 			}
 			break;
 		case FIND_STATE_5:
+			if (COLOR_BLACK == color){
+				state->w[3] = pos - state->last;
+				state->last = pos;
+				state->stage = FIND_STATE_6;
+			}
+			break;
+		case FIND_STATE_6:
 			if (COLOR_WHITE == color){
 				state->w[4] = pos - state->last;
 				state->last = pos;
@@ -135,10 +151,6 @@ static void _state2MarkerLine(unsigned otherd, findstate *state, markerline *mli
 	mline->end = (state->last >> SUBPREC);
 	mline->start = ((state->last - state->w[0] - state->w[1] - state->w[2] - state->w[3] - state->w[4]) >> SUBPREC);
 	mline->otherd = (otherd);
-	/*
-	mline->end = (state->last);
-	mline->start = ((state->last - state->w[0] - state->w[1] - state->w[2] - state->w[3] - state->w[4]));
-	mline->otherd = (otherd); */
 	
 	return;
 }
@@ -148,59 +160,36 @@ static void _resetState(findstate *state)
 	memset(state, 0, sizeof(*state));
 }
 
-static void _scanImage(Mat &rawImg, Mat &edgeImg, vector<markerline> &xlines, vector<markerline> &ylines)
+static void _scanImage(Mat &binary, vector<markerline> &xlines, vector<markerline> &ylines)
 {
-	unsigned char *raw, *edges;
+	unsigned char *raw;
+	unsigned char pixel;
 	int x, y;
 	int width, height;
 	int ret;
 	findstate state;
 	markerline mline;
-	unsigned int previous, next;
 	
-	CV_Assert(rawImg.cols == edgeImg.cols &&
-			  rawImg.rows == edgeImg.rows &&
-			  true == rawImg.isContinuous() &&
-			  true == edgeImg.isContinuous());
-	width = rawImg.cols;
-	height = rawImg.rows;
-	raw = rawImg.ptr<uchar>(0);
-	edges = edgeImg.ptr<uchar>(0);
+	CV_Assert(true == binary.isContinuous());
+	width = binary.cols;
+	height = binary.rows;
+	raw = binary.ptr<uchar>(0);
 
 	for (y = 0; y < height; ++y){
 		
 		_resetState(&state);
 		for (x = 0; x < width; ++x){
 			
-			//if edges
-			if (COLOR_WHITE == edges[y * width + x]){
-				if (x > 0){
-					previous = raw[y * width + x - 1];
-				} else {
-					previous = raw[y * width + x];
-				}
+			pixel = raw[y * width + x];
+			_addStage(x, pixel, &state);
 				
-				if (x < width - 1){
-					next = raw[y * width + x + 1];
-				} else {
-					next = raw[y * width + x];
-				}
-				
-				//add state
-				if (previous > next){
-					_addStage(x, COLOR_BLACK, &state);
-				} else {
-					_addStage(x, COLOR_WHITE, &state);
-				}
-				
-				//test if we find the marker
-				ret = _matchState(&state);
-				if (1 == ret){
-					_state2MarkerLine(y, &state, &mline);
-					xlines.push_back(mline);
-					_resetState(&state);
-				}
-			}//if
+			//test if we find the marker
+			ret = _matchState(&state);
+			if (1 == ret){
+				_state2MarkerLine(y, &state, &mline);
+				xlines.push_back(mline);
+				_resetState(&state);
+			}
 		}//for
 	}//for
 	
@@ -209,47 +198,30 @@ static void _scanImage(Mat &rawImg, Mat &edgeImg, vector<markerline> &xlines, ve
 		_resetState(&state);
 		for (y = 0; y < height; ++y){
 			
-			//if edges
-			if (COLOR_WHITE == edges[y * width + x]){
-				if (y > 0){
-					previous = raw[(y - 1) * width + x];
-				} else {
-					previous = raw[y * width + x];
-				}
-				
-				if (y < height - 1){
-					next = raw[(y + 1) * width + x];
-				} else {
-					next = raw[y * width + x];
-				}
-				
-				//add state
-				if (previous > next){
-					_addStage(y, COLOR_BLACK, &state);
-				} else {
-					_addStage(y, COLOR_WHITE, &state);
-				}
-				
-				//test if we find the marker
-				ret = _matchState(&state);
-				if (1 == ret){
-					_state2MarkerLine(x, &state, &mline);
-					ylines.push_back(mline);
-					_resetState(&state);
-				} 
-			}//if
+			pixel = raw[y * width + x];
+			_addStage(y, pixel, &state);
+
+			//test if we find the marker
+			ret = _matchState(&state);
+			if (1 == ret){
+				_state2MarkerLine(x, &state, &mline);
+				ylines.push_back(mline);
+				_resetState(&state);
+			} 
 		}//for
 	}//for
 	
 	return;
 }
 
-/*
-static void _findMark(Mat raw, Mat edges, vector<markerline> &mark)
+//过滤掉孤立的线，并把markerline分组，输出每组中最外侧线条组成长方形外框
+static void _filteIsolate(vector<markerline> &lines)
 {
 
 }
-*/
+
+//判断长方形外框是否相交，如果相交找出焦点
+
 
 static void _drawFinderLines(Mat &img, vector<markerline> &lines, int x)
 {
@@ -278,7 +250,7 @@ static void _drawFinderLines(Mat &img, vector<markerline> &lines, int x)
 	return;
 }
 
-void LOCATER_ProcessImage(Mat &raw, Mat &edges, Mat &qrimg)
+void LOCATER_ProcessImage(Mat &raw, Mat &binary, Mat &qrimg)
 {
 	Mat gray;
 	vector<markerline> xlines;
@@ -287,14 +259,11 @@ void LOCATER_ProcessImage(Mat &raw, Mat &edges, Mat &qrimg)
 	//gray
 	cvtColor(raw, gray, CV_RGB2GRAY);
 
-	//blur
-	GaussianBlur(gray, gray, Size(3, 3), 0, 0);
-
-	//canny
-	Canny(gray, edges, 100, 150, 3);
-
+	//threshold
+	adaptiveThreshold(gray, binary, COLOR_WHITE, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 35, 5);
+	
 	//scan image
-	_scanImage(gray, edges, xlines, ylines);
+	_scanImage(binary, xlines, ylines);
 
 	//draw finder lines
 	_drawFinderLines(raw, xlines, 1);
