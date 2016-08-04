@@ -51,7 +51,7 @@ int main( int argc, char** argv )
 	}
 
 	//processing
-	LOCATER_ProcessImage(raw, edges, qrcode);
+	QR_ProcessImage(raw, edges, qrcode);
 
 	imshow("RAW", raw);
 	imshow("EDGES", edges);

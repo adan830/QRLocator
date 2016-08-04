@@ -26,7 +26,7 @@ int main( int argc, char* argv[])
 		capture >> raw;
 
 		//processing
-		LOCATER_ProcessImage(raw, binary, qrcode);
+		LOC_ProcessImage(raw, binary, qrcode);
 
 		//show image
 		imshow("RAW", raw);
