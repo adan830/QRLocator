@@ -33,10 +33,8 @@ enum{
 };
 
 //point
-typedef struct QRPoint{
-	int x;
-	int y;
-}QRPoint;
+typedef int QRPoint[2];
+
 
 //用于匹配白:黑:白:黑:白:黑:白的模式，宽度比为n:1:1:3:1:1:n
 typedef struct QRFindState{
@@ -88,18 +86,36 @@ typedef struct QRFinderCluster{
   int          nlines;
 } QRFinderCluster;
 
+typedef struct QRFinderCenter{
+	QRPoint pos; //finder 中心的位置
+	int     len; //finder 中心黑块的宽度
+} QRFinderCenter;
+
+const Scalar g_Green = Scalar(0, 255, 0);
+const Scalar g_Red = Scalar(0, 0, 255);
+
 //从图片中寻找finder line时使用
 static QRFinderLine g_XLines[QR_CONFIG_MAX_FINDER_LINE];
 static int g_XLineSize = 0;
 static QRFinderLine g_YLines[QR_CONFIG_MAX_FINDER_LINE];
 static int g_YLineSize = 0;
 
-//给finder line分组使用
+//给cluster lines 使用
 static char g_LineMark[QR_CONFIG_MAX_FINDER_LINE];
 static QRFinderLine* g_XNeighbors[QR_CONFIG_MAX_FINDER_LINE];
 static QRFinderLine* g_YNeighbors[QR_CONFIG_MAX_FINDER_LINE];
-static QRFinderCluster g_XCluster[QR_CONFIG_MAX_FINDER_LINE/2];
-static QRFinderCluster g_YCluster[QR_CONFIG_MAX_FINDER_LINE/2];
+static QRFinderCluster g_XClusters[QR_CONFIG_MAX_FINDER_LINE/2];
+static QRFinderCluster g_YClusters[QR_CONFIG_MAX_FINDER_LINE/2];
+
+//给cross clusters 使用
+static QRFinderCluster* g_XCNeighbors[QR_CONFIG_MAX_FINDER_LINE/2];
+static QRFinderCluster* g_YCNeighbors[QR_CONFIG_MAX_FINDER_LINE/2];
+
+//给finder center使用
+static QRFinderCenter g_Centers[QR_CONFIG_MAX_FINDER_CENTER];
+static int g_nCenters = 0;
+
+static void _drawFinderLines(Mat &img, QRFinderLine* lines, int lsize, int _v);
 
 static void _addStage(int pos, int color, QRFindState *state)
 {
@@ -203,8 +219,8 @@ static void _addXFinderLine(int y, QRFindState *state)
 	fline = g_XLines + g_XLineSize;
 	g_XLineSize += 1;
 
-	fline->pos.x = (state->last - state->w[2] - state->w[3] - state->w[4]);
-	fline->pos.y = QR_TO_CALC(y);
+	fline->pos[0] = (state->last - state->w[2] - state->w[3] - state->w[4]);
+	fline->pos[1] = QR_TO_CALC(y);
 	fline->len = state->w[2];
 	fline->boffs = state->w[1] + state->w[0]/2;
 	fline->eoffs = state->w[3] + state->w[4]/2;
@@ -224,8 +240,8 @@ static void _addYFinderLine(int x, QRFindState *state)
 	fline = g_YLines + g_YLineSize;
 	g_YLineSize += 1;
 
-	fline->pos.x = QR_TO_CALC(x);
-	fline->pos.y = (state->last - state->w[2] - state->w[3] - state->w[4]);	
+	fline->pos[0] = QR_TO_CALC(x);
+	fline->pos[1] = (state->last - state->w[2] - state->w[3] - state->w[4]);	
 	fline->len = state->w[2];
 	fline->boffs = state->w[1] + state->w[0]/2;
 	fline->eoffs = state->w[3] + state->w[4]/2;
@@ -289,13 +305,8 @@ static void _scanImage(Mat &binary)
 	return;
 }
 
-static int _isOneCluster(QRFinderLine *a, QRFinderLine *b)
-{
-	
-}
-
 //过滤掉孤立的线，并把markerline分组，输出每组中最外侧线条组成长方形外框
-static int _clusterLines(QRFinderLine *lines, int nline, QRFinderLine** neighbors, QRFinderCluster *cluster)
+static int _clusterLines(QRFinderLine *lines, int nline, QRFinderLine** neighbors, QRFinderCluster *cluster, int _v)
 {
 	int i;
 	int j;
@@ -304,10 +315,10 @@ static int _clusterLines(QRFinderLine *lines, int nline, QRFinderLine** neighbor
 	QRFinderLine *a;
 	QRFinderLine *b;
 	int thresh;
-	int totallen;
+	int len;
 
 	nclusters = 0;
-	totallen = 0;
+	len = 0;
 	memset(g_LineMark, 0, sizeof(g_LineMark));
 	for (i = 0; i < nline; ++i){
 		if (0 != g_LineMark[i]){
@@ -316,7 +327,7 @@ static int _clusterLines(QRFinderLine *lines, int nline, QRFinderLine** neighbor
 
 		nneighbors = 0;
 		neighbors[nneighbors++] = lines + i;
-		totallen = neighbors[nneighbors - 1]->len;
+		len = neighbors[nneighbors - 1]->len;
 		
 		for (j = i + 1; j < nline; ++j){
 			if (0 != g_LineMark[i]){
@@ -326,65 +337,376 @@ static int _clusterLines(QRFinderLine *lines, int nline, QRFinderLine** neighbor
 			a = neighbors[nneighbors - 1];
 			b = lines + j;
 
-			if (0 == _isOneCluster(a, b)){
-				continue;
+			thresh=a->len+7>>2;
+			if(abs(a->pos[1-_v]-b->pos[1-_v])>thresh)break;
+			if(abs(a->pos[_v]-b->pos[_v])>thresh)continue;
+			if(abs(a->pos[_v]+a->len-b->pos[_v]-b->len)>thresh)continue;
+			if(a->boffs>0&&b->boffs>0&&
+			 abs(a->pos[_v]-a->boffs-b->pos[_v]+b->boffs)>thresh){
+			  continue;
+			}
+			if(a->eoffs>0&&b->eoffs>0&&
+			 abs(a->pos[_v]+a->len+a->eoffs-b->pos[_v]-b->len-b->eoffs)>thresh){
+			  continue;
 			}
 
 			neighbors[nneighbors++] = lines + j;
-			totallen += b->len;
+			ASSERT(nneighbors < QR_CONFIG_MAX_FINDER_LINE);
+			len += b->len;
 		}
 
 		if (nneighbors < 3){
 			continue;
 		}
 
-		cluster[nclusters].lines = neighbors;
-		cluster[nclusters].nlines = nneighbors;
-		neighbors += nneighbors;
-		nclusters += 1;
+		len=((len<<1)+nneighbors)/(nneighbors<<1);
+		if (QR_TO_CALC(nneighbors) * 3 > len){
+			cluster[nclusters].lines = neighbors;
+			cluster[nclusters].nlines = nneighbors;
+			for(j=0;j<nneighbors;j++)g_LineMark[neighbors[j]-lines]=1;
+			neighbors += nneighbors;
+			nclusters += 1;
+			ASSERT(nclusters < QR_CONFIG_MAX_FINDER_LINE/2);
+		}		
 	}
 
 	return nclusters;
 }
 
-//画出finder line
-static void _drawXFinderLines(Mat &img)
+/*Determine if a horizontal line crosses a vertical line.
+  _hline: The horizontal line.
+  _vline: The vertical line.
+  Return: A non-zero value if the lines cross, or zero if they do not.*/
+static int _linesAreCrossing(const QRFinderLine *_hline,
+ const QRFinderLine *_vline){
+  return
+   _hline->pos[0]<=_vline->pos[0]&&_vline->pos[0]<_hline->pos[0]+_hline->len&&
+   _vline->pos[1]<=_hline->pos[1]&&_hline->pos[1]<_vline->pos[1]+_vline->len;
+}
+
+static void _calcMiddleLine(QRFinderCluster** clusters, int nCluster, int _v, QRFinderLine* line)
+{
+	QRFinderCluster* c;
+	int i;
+	int j;
+	int len;
+	int start;
+	int count;
+	int min;
+	int max;
+
+	start = 0;
+	len = 0;
+	count = 0;
+	min = 0x7FFFFFFF;
+	max = 0;
+	for (i = 0; i < nCluster; ++i){
+		c = clusters[i];
+		for (j = 0; j < c->nlines; ++j){
+			start += c->lines[j]->pos[_v];
+			len += c->lines[j]->len;
+			count += 1;
+
+			if (c->lines[j]->pos[1-_v] > max){
+				max = c->lines[j]->pos[1-_v];
+			}
+
+			if (c->lines[j]->pos[1-_v] < min){
+				min = c->lines[j]->pos[1-_v];
+			}
+		}
+	}
+
+	line->pos[_v] = (start + (count >> 2))/count;
+	line->pos[1-_v] = (min + max + 1)/2;
+	line->len = (len + (count >> 2))/count;
+	line->boffs = 0;
+	line->eoffs = 0;
+	
+	return;
+}
+
+static int _findCrossing(QRFinderCenter *centers, int centerSize, 
+						  QRFinderCluster* xClusters, int nxCluster, 
+						  QRFinderCluster* yClusters, int nyCluster,
+						  QRFinderCluster** xNeighbors,
+						  QRFinderCluster** yNeighbors)
 {
 	int i;
-	QRFinderLine *line;
-	const Scalar green = Scalar(0, 255, 0);
+	int j;
+	char *xMark = g_LineMark;
+	char *yMark = g_LineMark + QR_CONFIG_MAX_FINDER_LINE/2;
+	QRFinderLine *a;
+	QRFinderLine *b;
+	QRFinderLine xMiddleLine;
+	QRFinderLine yMiddleLine;
+	int nxNeighbors;	
+	int nyNeighbors;
+	int nCenters;
 
-	printf("find [%d] xlines.\r\n", g_XLineSize);
+	memset(g_LineMark, 0 ,sizeof(g_LineMark));
+	nCenters = 0;
+	
+	for (i = 0; i < nxCluster; ++i){
+		if (1 == xMark[i]){
+			continue;
+		}
 
-	for (i = 0; i < g_XLineSize; ++i){
-		line = g_XLines + i;
-		cv::line(img, 
-			 Point(QR_TO_ACTUAL(line->pos.x - line->boffs), QR_TO_ACTUAL(line->pos.y)), 
-			 Point(QR_TO_ACTUAL(line->pos.x + line->len + line->eoffs), QR_TO_ACTUAL(line->pos.y)), 
-			 green);
+		nyNeighbors = 0;
+		a = xClusters[i].lines[xClusters[i].nlines>>1];
+		for (j = 0; j < nyCluster; ++j){
+			if (1 == yMark[j]){
+				continue;
+			}
+
+			b = yClusters[j].lines[yClusters[j].nlines>>1];
+			if (_linesAreCrossing(a, b)){
+				yMark[j],
+				yNeighbors[nyNeighbors++] = yClusters + j;
+			}
+		}
+
+		if (nyNeighbors > 0){
+			_calcMiddleLine(yNeighbors, nyNeighbors, 1, &yMiddleLine);
+			nxNeighbors = 0;
+			xNeighbors[nxNeighbors++] = xClusters+i;
+			
+			for (j = i + 1; j < nxCluster; ++j){
+				if (1 == xMark[i]){
+					continue;
+				}
+
+				a = xClusters[j].lines[xClusters[j].nlines>>1];
+				if (_linesAreCrossing(a, &yMiddleLine)){
+					xMark[j]=1;
+					xNeighbors[nxNeighbors++] = xClusters + j;
+				}
+			}
+
+			_calcMiddleLine(xNeighbors, nxNeighbors, 0, &xMiddleLine);
+
+			if (nCenters < centerSize){
+				centers[nCenters].pos[0] = yMiddleLine.pos[0];
+				centers[nCenters].pos[1] = xMiddleLine.pos[1];
+				centers[nCenters].len = (yMiddleLine.len + xMiddleLine.len) / 2;
+				nCenters += 1;
+			} else {
+				ASSERT(0);
+			}
+		}
+	}
+
+	return nCenters;
+}
+
+static void _drawXFinderLine(Mat &img, QRFinderLine *line)
+{
+	cv::line(img, 
+			 Point(QR_TO_ACTUAL(line->pos[0] - line->boffs), QR_TO_ACTUAL(line->pos[1])), 
+			 Point(QR_TO_ACTUAL(line->pos[0] + line->len + line->eoffs), QR_TO_ACTUAL(line->pos[1])), 
+			 g_Green);
+
+	return;
+}
+
+static void _drawYFinderLine(Mat &img, QRFinderLine *line)
+{
+	cv::line(img, 
+			Point(QR_TO_ACTUAL(line->pos[0]), QR_TO_ACTUAL(line->pos[1] - line->boffs)), 
+			Point(QR_TO_ACTUAL(line->pos[0]), QR_TO_ACTUAL(line->pos[1] + line->len + line->eoffs)),
+			g_Green);
+
+	return;
+}
+
+//画出finder line
+static void _drawFinderLines(Mat &img, QRFinderLine* lines, int lsize, int _v)
+{
+	int i;
+
+	printf("find [%d] lines.\r\n", lsize);
+
+	for (i = 0; i < lsize; ++i){
+		if (0 == _v){
+			_drawXFinderLine(img, lines + i);
+		} else {
+			_drawYFinderLine(img, lines + i);
+		}
 	}
 
 	return;
 }
 
-static void _drawYFinderLines(Mat &img)
+//画出cluster
+static void _drawCluster(Mat &img, QRFinderCluster *cluster, int clusterSize, int _v)
 {
 	int i;
-	QRFinderLine *line;
-	const Scalar green = Scalar(0, 255, 0);
+	int j;
 
-
-	printf("find [%d] ylines.\r\n", g_YLineSize);
-
-	for (i = 0; i < g_YLineSize; ++i){
-		line = g_YLines + i;
-		cv::line(img, 
-				Point(QR_TO_ACTUAL(line->pos.x), QR_TO_ACTUAL(line->pos.y - line->boffs)), 
-				Point(QR_TO_ACTUAL(line->pos.x), QR_TO_ACTUAL(line->pos.y + line->len + line->eoffs)),
-				green);
+	for (i = 0; i < clusterSize; ++i){
+		for (j = 0; j < cluster->nlines; ++j){
+			if (0 == _v){
+				_drawXFinderLine(img, cluster->lines[j]);
+			} else {
+				_drawYFinderLine(img, cluster->lines[j]);
+			}
+		}
+		cluster += 1;
 	}
 
 	return;
+}
+
+static void _drawCenters(Mat &img, QRFinderCenter *centers, int nCenters)
+{
+	int i;
+
+	for (i = 0; i < nCenters; ++i){
+
+		cv::line(img, 
+				 Point(QR_TO_ACTUAL(centers[i].pos[0]) - 3, QR_TO_ACTUAL(centers[i].pos[1])), 
+				 Point(QR_TO_ACTUAL(centers[i].pos[0]) + 3, QR_TO_ACTUAL(centers[i].pos[1])),
+				 g_Red);
+
+		cv::line(img, 
+				 Point(QR_TO_ACTUAL(centers[i].pos[0]), QR_TO_ACTUAL(centers[i].pos[1]) - 3), 
+				 Point(QR_TO_ACTUAL(centers[i].pos[0]), QR_TO_ACTUAL(centers[i].pos[1]) + 3),
+				 g_Red);		
+	}
+
+	return;
+}
+
+/*
+static void _tmp(Mat &img, QRFinderCluster* clusters, int size, int _v)
+{
+	QRFinderLine line;
+	QRFinderCluster *c;
+	int i;
+
+	for (i = 0; i < size; ++i){
+		c = clusters + i;
+		_calcMiddleLine(&c, 1, _v, &line);
+		_drawFinderLines(img, &line, 1, _v);
+	}
+}
+*/
+
+//过滤finder line
+static void _findCenters(Mat &img)
+{
+	int xnclusters;
+	int ynclusters;
+
+	//画出finder line
+	//_drawFinderLines(img, g_XLines, g_XLineSize, 0);
+	//_drawFinderLines(img, g_YLines, g_YLineSize, 1);
+	
+	//分组
+	xnclusters = _clusterLines(g_XLines, g_XLineSize, g_XNeighbors, g_XClusters, 0);
+	ynclusters = _clusterLines(g_YLines, g_YLineSize, g_YNeighbors, g_YClusters, 1);
+
+	//画出cluster
+	_drawCluster(img, g_XClusters, xnclusters, 0);
+	_drawCluster(img, g_YClusters, ynclusters, 1);	
+
+	//_tmp(img, g_XClusters, xnclusters, 0);
+	//_tmp(img, g_YClusters, ynclusters, 1);
+	
+	//判断cluster是否交叉
+	g_nCenters = _findCrossing(g_Centers, sizeof(g_Centers)/sizeof(g_Centers[0]),
+    						  g_XClusters, xnclusters,
+    						  g_YClusters, ynclusters,
+    						  g_XCNeighbors, g_YCNeighbors);
+
+	//画出点
+	_drawCenters(img, g_Centers, g_nCenters);
+	
+	return;
+}
+
+//找出QR的外框并进行剪裁
+static int _findQRSquare(Mat &raw, Mat &qrimg)
+{	
+	int minx;
+	int miny;
+	int maxx;
+	int maxy;
+	int i;
+	int len;
+
+	if (g_nCenters < 3){
+		return -1;
+	}
+
+	minx = 0x7FFFFFFF;
+	miny = 0x7FFFFFFF;
+	maxx = 0;
+	maxy = 0;
+	len = 0;
+
+	//找出最大边框
+	for (i = 0; i < g_nCenters; ++i){
+		if (g_Centers[i].pos[0] < minx){
+			minx = g_Centers[i].pos[0];
+		}
+
+		if (g_Centers[i].pos[0] > maxx){
+			maxx = g_Centers[i].pos[0];
+		}
+
+		if (g_Centers[i].pos[1] < miny){
+			miny = g_Centers[i].pos[1];
+		}
+
+		if (g_Centers[i].pos[1] > maxy){
+			maxy = g_Centers[i].pos[1];
+		}
+
+		len += g_Centers[i].len;
+	}
+
+	//finder中心黑块的凭据长度
+	len /= g_nCenters;
+	len = len*8/3;
+
+	len = QR_TO_ACTUAL(len);
+	minx = QR_TO_ACTUAL(minx);
+	miny = QR_TO_ACTUAL(miny);
+	maxx = QR_TO_ACTUAL(maxx);
+	maxy = QR_TO_ACTUAL(maxy);
+
+	//将裁剪边界扩张一定尺寸
+	if (minx - len >= 0){
+		minx = minx - len;
+	} else {
+		minx = 0;
+	}
+	
+	if (miny - len >= 0){
+		miny = miny - len;
+	} else {
+		miny = 0;
+	}
+	
+	if (maxx + len < raw.cols){
+		maxx = maxx + len;
+	} else {
+		maxx = raw.cols;
+	}
+
+	if (maxy + len < raw.rows){
+		maxy = maxy + len;
+	} else {
+		maxy = raw.rows;
+	}
+
+	{
+		Mat _tmp(raw, Rect(minx, miny, maxx - minx, maxy - miny));
+		qrimg = _tmp;
+	}
+
+	return 0;
 }
 
 void QR_ProcessImage(Mat &raw, Mat &binary, Mat &qrimg)
@@ -400,7 +722,7 @@ void QR_ProcessImage(Mat &raw, Mat &binary, Mat &qrimg)
 	//imshow("Threadhold", binary);
 
 	//消除噪点
-	elem = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
+	elem = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
 	morphologyEx(binary, binary, MORPH_CLOSE, elem);
 	//imshow("Close", binary);
 
@@ -411,9 +733,11 @@ void QR_ProcessImage(Mat &raw, Mat &binary, Mat &qrimg)
 	//scan image
 	_scanImage(binary);
 
-	//draw finder lines
-	_drawXFinderLines(raw);
-	_drawYFinderLines(raw);
+	//find centers
+	_findCenters(raw);
+
+	//find qr square
+	_findQRSquare(raw, qrimg);
 
 	return;
 }

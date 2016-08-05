@@ -55,6 +55,7 @@ int main( int argc, char** argv )
 
 	imshow("RAW", raw);
 	imshow("EDGES", edges);
+	imshow("QR", qrcode);
 
     waitKey(0); // Wait for a keystroke in the window
 

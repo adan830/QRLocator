@@ -10,6 +10,9 @@
 //同一个方向上findler line的最大数量
 #define QR_CONFIG_MAX_FINDER_LINE   640
 
+//一副途中最大的Finder Center数量
+#define QR_CONFIG_MAX_FINDER_CENTER 16
+
 extern void QR_ProcessImage(Mat &raw, Mat &binary, Mat &qrimg);
 
 #endif
