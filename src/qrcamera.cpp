@@ -26,11 +26,13 @@ int main( int argc, char* argv[])
 		capture >> raw;
 
 		//processing
-		LOC_ProcessImage(raw, binary, qrcode);
+		QR_ProcessImage(raw, binary, qrcode);
 
 		//show image
 		imshow("RAW", raw);
-		imshow("EDGES", edges);
+		if (false == qrcode.empty()){
+			imshow("QR", qrcode);
+		}
 
 		key = waitKey(1);
 	}

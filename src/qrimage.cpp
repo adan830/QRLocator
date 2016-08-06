@@ -11,6 +11,7 @@ using namespace cv;
 using namespace std;
 
 #include "locator.h"
+#include "decoder.h"
 
 static int _loadImage( char * name, Mat *image)
 {
@@ -50,12 +51,18 @@ int main( int argc, char** argv )
 		return ret;
 	}
 
+	QR_CreateDecoder();
+
 	//processing
 	QR_ProcessImage(raw, edges, qrcode);
 
 	imshow("RAW", raw);
 	imshow("EDGES", edges);
-	imshow("QR", qrcode);
+
+	if (false == qrcode.empty()){
+		imshow("QR", qrcode);
+		QR_Decode(qrcode.data, qrcode.cols, qrcode.rows);
+	}
 
     waitKey(0); // Wait for a keystroke in the window
 
